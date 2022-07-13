@@ -3,12 +3,11 @@ package serve
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/openshift/ocm-agent/pkg/ocm"
 
 	"github.com/gorilla/mux"
-	log "github.com/sirupsen/logrus"
+	log "github.com/jwai7/ocm-agent/pkg/logging"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -20,25 +19,6 @@ import (
 	"github.com/openshift/ocm-agent/pkg/k8s"
 	"github.com/openshift/ocm-agent/pkg/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-)
-
-type level log.Level
-
-func (l *level) String() string {
-	return log.Level(*l).String()
-}
-
-func (l *level) Set(value string) error {
-	lvl, err := log.ParseLevel(strings.TrimSpace(value))
-	if err == nil {
-		*l = level(lvl)
-	}
-	return err
-}
-
-var (
-	defaultLogLevel = log.InfoLevel.String()
-	logLevel        level
 )
 
 // serveOptions define the configuration options required by OCM agent to serve.
@@ -121,7 +101,7 @@ func (o *serveOptions) Complete(cmd *cobra.Command, args []string) error {
 
 	// Check if debug mode is enabled and set the logging level accordingly
 	if o.debug {
-		log.SetLevel(log.DebugLevel)
+		log.Set(log.DebugLevel)
 	}
 
 	return nil
@@ -181,7 +161,7 @@ func (o *serveOptions) Run() error {
 }
 
 func initLogging() {
-	log.SetLevel(log.Level(logLevel))
+	log.Set(log.InfoLevel.String())
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 		PadLevelText:  false,
@@ -189,8 +169,6 @@ func initLogging() {
 }
 
 func init() {
-	// Set default log level
-	_ = logLevel.Set(defaultLogLevel)
 	cobra.OnInitialize(initLogging)
 }
 
