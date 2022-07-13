@@ -7,7 +7,7 @@ import (
 	"github.com/openshift/ocm-agent/pkg/ocm"
 
 	"github.com/gorilla/mux"
-	log "github.com/jwai7/ocm-agent/pkg/logging"
+	log "github.com/jwai7/ocm-agent/pkg/logging/logging"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
