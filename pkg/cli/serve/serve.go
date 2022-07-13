@@ -3,13 +3,12 @@ package serve
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
-	"github.com/openshift/ocm-agent/pkg/consts"
 	"github.com/openshift/ocm-agent/pkg/ocm"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/gorilla/mux"
-	log "github.com/sirupsen/logrus"
+	log "github.com/openshift/ocm-agent/pkg/logging"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -20,26 +19,6 @@ import (
 	"github.com/openshift/ocm-agent/pkg/handlers"
 	"github.com/openshift/ocm-agent/pkg/k8s"
 	"github.com/openshift/ocm-agent/pkg/metrics"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-)
-
-type level log.Level
-
-func (l *level) String() string {
-	return log.Level(*l).String()
-}
-
-func (l *level) Set(value string) error {
-	lvl, err := log.ParseLevel(strings.TrimSpace(value))
-	if err == nil {
-		*l = level(lvl)
-	}
-	return err
-}
-
-var (
-	defaultLogLevel = log.InfoLevel.String()
-	logLevel        level
 )
 
 // serveOptions define the configuration options required by OCM agent to serve.
@@ -72,6 +51,11 @@ var (
 	`)
 )
 
+const (
+	servicePort int = 8081
+	metricsPort int = 8383
+)
+
 func NewServeOptions() *serveOptions {
 	return &serveOptions{}
 }
@@ -96,7 +80,7 @@ func NewServeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&o.accessToken, config.AccessToken, "t", "", "Access token for OCM")
 	cmd.Flags().StringVarP(&o.clusterID, config.ClusterID, "c", "", "Cluster ID")
 	cmd.PersistentFlags().BoolVarP(&o.debug, config.Debug, "d", false, "Debug mode enable")
-	kcmdutil.CheckErr(viper.BindPFlags(cmd.Flags()))
+	viper.BindPFlags(cmd.Flags())
 
 	_ = cmd.MarkFlagRequired(config.OcmURL)
 	_ = cmd.MarkFlagRequired(config.Services)
@@ -117,7 +101,7 @@ func (o *serveOptions) Complete(cmd *cobra.Command, args []string) error {
 
 	// Check if debug mode is enabled and set the logging level accordingly
 	if o.debug {
-		log.SetLevel(log.DebugLevel)
+		log.Set(log.DebugLevel)
 	}
 
 	return nil
@@ -131,13 +115,11 @@ func (o *serveOptions) Run() error {
 
 	// create new router for metrics
 	rMetrics := mux.NewRouter()
-	rMetrics.Path(consts.MetricsPath).Handler(promhttp.Handler())
+	rMetrics.Path("/metrics").Handler(promhttp.Handler())
 
 	// Listen on the metrics port with a seprated goroutine
-	log.WithField("Port", consts.OCMAgentMetricsPort).Info("Start listening on metrics port")
-	go func() {
-		_ = http.ListenAndServe(":"+strconv.Itoa(consts.OCMAgentMetricsPort), rMetrics)
-	}()
+	log.WithField("Port", metricsPort).Info("Start listening on metrics port")
+	go http.ListenAndServe(":"+strconv.Itoa(metricsPort), rMetrics)
 
 	// Initialize k8s client
 	client, err := k8s.NewClient()
@@ -163,14 +145,14 @@ func (o *serveOptions) Run() error {
 	livezHandler := handlers.NewLivezHandler()
 	readyzHandler := handlers.NewReadyzHandler()
 	webhookReceiverHandler := handlers.NewWebhookReceiverHandler(client, ocmclient)
-	r.Path(consts.LivezPath).Handler(livezHandler)
-	r.Path(consts.ReadyzPath).Handler(readyzHandler)
-	r.Path(consts.WebhookReceiverPath).Handler(webhookReceiverHandler)
+	r.Path(handlers.LivezPath).Handler(livezHandler)
+	r.Path(handlers.ReadyzPath).Handler(readyzHandler)
+	r.Path(handlers.WebhookReceiverPath).Handler(webhookReceiverHandler)
 	r.Use(metrics.PrometheusMiddleware)
 
 	// serve
-	log.WithField("Port", consts.OCMAgentServicePort).Info("Start listening on service port")
-	err = http.ListenAndServe(":"+strconv.Itoa(consts.OCMAgentServicePort), r)
+	log.WithField("Port", servicePort).Info("Start listening on service port")
+	err = http.ListenAndServe(":"+strconv.Itoa(servicePort), r)
 	if err != nil {
 		log.WithError(err).Fatal("OCM Agent failed to serve")
 	}
@@ -179,7 +161,7 @@ func (o *serveOptions) Run() error {
 }
 
 func initLogging() {
-	log.SetLevel(log.Level(logLevel))
+	log.Set(log.InfoLevel.String())
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 		PadLevelText:  false,
@@ -187,7 +169,17 @@ func initLogging() {
 }
 
 func init() {
-	// Set default log level
-	_ = logLevel.Set(defaultLogLevel)
 	cobra.OnInitialize(initLogging)
+}
+
+// fake func for metrics testing
+func fakeCallServiceLog(w http.ResponseWriter, r *http.Request) {
+	log.Info("fake request to service log")
+	metrics.SetResponseMetricFailure("service_log")
+}
+
+// fake func for metrics testing
+func fakeReqFailure(w http.ResponseWriter, r *http.Request) {
+	log.Info("fake http non 200 response")
+	w.WriteHeader(http.StatusBadGateway)
 }
